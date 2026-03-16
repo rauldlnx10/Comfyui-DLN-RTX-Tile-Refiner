@@ -2,8 +2,6 @@
 
 An advanced tile-based refiner for ComfyUI that splits images into grids, enhances each tile using **Nvidia RTX Super Resolution (nvvfx)**, and refines them with a KSampler pass for maximum fotorrealistic detail.
 
-![DLN Logo](icon.png)
-
 ## 🚀 Features
 
 - **Refiner & Upscale Modes:**
