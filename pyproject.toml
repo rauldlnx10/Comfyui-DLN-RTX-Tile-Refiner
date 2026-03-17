@@ -1,0 +1,17 @@
+[project]
+name = "DLN-RTX-Tile-Refiner"
+description = "An advanced tile-based refiner for ComfyUI that splits images into grids (2x2, 4x4, 8x8...), enhances each tile using Nvidia RTX Super Resolution (nvvfx), and refines them with a KSampler pass."
+version = "1.0.0"
+license = { file = "LICENSE.txt" }
+
+[project.urls]
+Repository = "https://github.com/rauldlnx10/Comfyui-DLN-RTX-Tile-Refiner.git"
+#  Used by Comfy Registry https://registry.comfy.org
+
+[tool.comfy]
+PublisherId = "dln"
+DisplayName = "DLN-RTX-Tile-Refiner"
+Icon = ""
+includes = [] 
+# "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility
+
