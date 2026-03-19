@@ -38,6 +38,7 @@ class DLN_GridRefiner(io.ComfyNode):
                 io.Combo.Input("mode", options=["Refiner (Same Size)", "Upscale (Larger Image)"], default="Refiner (Same Size)", tooltip="Refiner keeps the original resolution but adds details. Upscale increases the final image resolution based on the RTX factor."),
                 io.Float.Input("rtx_upscale_factor", default=1.0, min=1.0, max=4.0, step=0.01, tooltip="Upscale factor using Nvidia RTX before refining. 1.0 disables it (requires nvvfx)."),
                 io.Combo.Input("rtx_quality", options=["LOW", "MEDIUM", "HIGH", "ULTRA"], default="HIGH"),
+                io.Mask.Input("mask", optional=True, tooltip="Optional mask to only refine specific areas. Tiles not covered by the mask will be skipped."),
             ],
             outputs=[
                 io.Image.Output("image", tooltip="The refined and merged image"),
@@ -46,11 +47,12 @@ class DLN_GridRefiner(io.ComfyNode):
         )
 
     @classmethod
-    def fingerprint_inputs(cls, image, model, positive, negative, vae, seed, steps, cfg, sampler_name, scheduler, denoise, grid_divisions, overlap, mode, rtx_upscale_factor, rtx_quality):
+    def fingerprint_inputs(cls, image, model, positive, negative, vae, seed, steps, cfg, sampler_name, scheduler, denoise, grid_divisions, overlap, mode, rtx_upscale_factor, rtx_quality, mask=None):
         return (str(seed), str(steps), str(cfg), sampler_name, scheduler, str(denoise), grid_divisions, str(overlap), mode, str(rtx_upscale_factor), rtx_quality)
 
     @classmethod
-    def execute(cls, image, model, positive, negative, vae, seed, steps, cfg, sampler_name, scheduler, denoise, grid_divisions, overlap, mode, rtx_upscale_factor, rtx_quality):
+    def execute(cls, image, model, positive, negative, vae, seed, steps, cfg, sampler_name, scheduler, denoise, grid_divisions, overlap, mode, rtx_upscale_factor, rtx_quality, mask=None):
+        user_mask = mask
         use_rtx = rtx_upscale_factor > 1.0 and HAS_NVVFX
         
         if rtx_upscale_factor > 1.0 and not HAS_NVVFX:
@@ -59,6 +61,16 @@ class DLN_GridRefiner(io.ComfyNode):
         b, h, w, c = image.shape
         grid_n = int(grid_divisions.split("x")[0])
         is_upscale_mode = (mode == "Upscale (Larger Image)")
+        
+        # ── Pre-process mask ──
+        if user_mask is not None:
+            # user_mask is [B, H_m, W_m] or [H_m, W_m]
+            user_mask = user_mask.to(image.device)
+            if len(user_mask.shape) == 2:
+                user_mask = user_mask.unsqueeze(0) # [1, H_m, W_m]
+            if user_mask.shape[1] != h or user_mask.shape[2] != w:
+                user_mask = F.interpolate(user_mask.unsqueeze(1), size=(h, w), mode='bilinear').squeeze(1)
+            user_mask = user_mask.unsqueeze(-1) # [B, H, W, 1]
         
         # ──────────────────────────────────────────────
         # 1. Determine output dimensions
@@ -73,6 +85,18 @@ class DLN_GridRefiner(io.ComfyNode):
             out_h, out_w = h, w
             effective_factor_h, effective_factor_w = 1.0, 1.0
             print(f"[DLN RTX Tile Refiner] Mode: Refiner | Resolution: {w}x{h}")
+
+        # ── Create high-res mask for merging ──
+        if user_mask is not None:
+            if is_upscale_mode:
+                final_mask = F.interpolate(
+                    user_mask.permute(0, 3, 1, 2),
+                    size=(out_h, out_w), mode='bilinear'
+                ).permute(0, 2, 3, 1).cpu()
+            else:
+                final_mask = user_mask.cpu()
+        else:
+            final_mask = None
 
         # OPTIMIZATION: out_image and weight_map live on CPU to save VRAM
         # Only the current tile needs GPU memory at any time
@@ -148,6 +172,15 @@ class DLN_GridRefiner(io.ComfyNode):
                     
                     # ── Extract tile ──
                     tile = image[:, y:y+actual_h, x:x+actual_w, :]
+                    
+                    # ── Mask check ──
+                    if user_mask is not None:
+                        tile_mask = user_mask[:, y:y+actual_h, x:x+actual_w, :]
+                        if tile_mask.sum() < 0.001:
+                            # Skip tile if no mask overlap
+                            pbar.update(1)
+                            seed += 1
+                            continue
                     
                     # ── RTX Upscale (tile level) ──
                     if use_rtx:
@@ -245,7 +278,12 @@ class DLN_GridRefiner(io.ComfyNode):
 
                     # ── Merge on CPU (saves VRAM) ──
                     refined_cpu = refined_tile[:, :fit_h, :fit_w, :].cpu()
-                    mask_cpu = mask[:, :fit_h, :fit_w, :]
+                    mask_cpu = mask[:, :fit_h, :fit_w, :].clone()
+                    
+                    if final_mask is not None:
+                        # Extract the user mask part corresponding to the output tile
+                        user_mask_tile = final_mask[:, out_y:out_y+fit_h, out_x:out_x+fit_w, :]
+                        mask_cpu *= user_mask_tile
                     
                     out_image[:, out_y:out_y+fit_h, out_x:out_x+fit_w, :] += refined_cpu * mask_cpu
                     weight_map[:, out_y:out_y+fit_h, out_x:out_x+fit_w, :] += mask_cpu
@@ -278,10 +316,14 @@ class DLN_GridRefiner(io.ComfyNode):
                 image.cpu().permute(0, 3, 1, 2),
                 size=(out_h, out_w), mode='bicubic', align_corners=False
             ).permute(0, 2, 3, 1)
-            out_image = torch.where(out_image.abs().sum(dim=-1, keepdim=True) > 0.001, out_image, bg)
-            del bg
         else:
-            out_image = torch.where(out_image.abs().sum(dim=-1, keepdim=True) > 0.001, out_image, image.cpu())
+            bg = image.cpu()
+            
+        if user_mask is not None:
+            # Final blend Refined vs Background using High-res User Mask
+            out_image = out_image * final_mask + bg * (1.0 - final_mask)
+        else:
+            out_image = torch.where(out_image.abs().sum(dim=-1, keepdim=True) > 0.001, out_image, bg)
         
         out_image = torch.clamp(out_image, 0.0, 1.0)
         
