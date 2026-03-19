@@ -1,7 +1,7 @@
 [project]
 name = "dln-rtx-tile-refiner"
 description = "An advanced tile-based refiner for ComfyUI that splits images into grids (2x2, 4x4, 8x8...), enhances each tile using Nvidia RTX Super Resolution (nvvfx), and refines them with a KSampler pass."
-version = "1.0.0"
+version = "1.0.1"
 license = {file = "LICENSE"} 
 # classifiers = [
 #     # For OS-independent nodes (works on all operating systems)
