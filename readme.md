@@ -29,4 +29,4 @@ An advanced tile-based refiner for ComfyUI that splits images into grids (2x2, 4
    ```
 
 ## 📝 License
-This project is licensed under the [MIT License]([LICENSE](https://github.com/rauldlnx10/Comfyui-DLN-RTX-Tile-Refiner/blob/main/LICENSE.txt)).
+This project is licensed under the [MIT License](https://github.com/rauldlnx10/Comfyui-DLN-RTX-Tile-Refiner/blob/main/LICENSE.txt).
