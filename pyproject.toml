@@ -1,7 +1,7 @@
 [project]
 name = "DLN-RTX-Tile-Refiner"
-description = "Added mask area."
-version = "1.0.2"
+description = "add advanced tile blending modes, color matching, sharpening, and context padding"
+version = "1.0.3"
 license = {file = "LICENSE"} 
 # classifiers = [
 #     # For OS-independent nodes (works on all operating systems)
