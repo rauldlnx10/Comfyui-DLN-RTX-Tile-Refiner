@@ -25,7 +25,7 @@ An advanced tile-based refiner for ComfyUI that splits images into grids (2x2, 4
 1. Clone or move this directory to your `custom_nodes` folder.
 2. Install dependencies:
    ```bash
-   pip install nvvfx  # Only for RTX GPUs
+   pip install nvidia-vfx  # Only for RTX GPUs
    ```
 
 ## 📝 License
